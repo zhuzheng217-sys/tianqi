@@ -1,0 +1,35 @@
+name: Weather -> DingTalk
+
+on:
+  schedule:
+    # 每天 07:00 UTC+8 触发（注意：cron 使用 UTC；如果要不同时间请调整）
+    - cron: '23 23 * * *' # 示例：每日触发（请根据需要修改）
+  workflow_dispatch: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip && pip install requests
+
+      - name: Send weather to DingTalk
+        env:
+          WEATHER_API_ID: ${{ secrets.WEATHER_API_ID }}
+          WEATHER_API_KEY: ${{ secrets.WEATHER_API_KEY }}
+          # 默认省/市，可直接在 workflow env 改为你想要的，或把它们放 secrets 里
+          PROVINCE: "安徽"
+          CITY: "宣城"
+          # 推荐把完整 webhook URL 存为 secret DINGTALK_WEBHOOK
+          DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
+          # 可选：如果钉钉机器人启用了“签名”，把 Secret 存到 DINGTALK_SECRET（否则留空）
+          DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
+        run: python scripts/send_weather.py

@@ -1,7 +1,7 @@
 import os
 import time
-import hmac
 import json
+import hmac
 import hashlib
 import base64
 import urllib.parse
@@ -9,7 +9,7 @@ import requests
 
 
 def sign_webhook(webhook, secret):
-
+    """生成钉钉加签"""
     timestamp = str(int(time.time() * 1000))
 
     string_to_sign = f"{timestamp}\n{secret}"
@@ -28,7 +28,7 @@ def sign_webhook(webhook, secret):
 
 
 def get_weather():
-
+    """获取天气"""
     api_id = os.getenv("WEATHER_API_ID")
     api_key = os.getenv("WEATHER_API_KEY")
 
@@ -44,13 +44,18 @@ def get_weather():
         "place": city
     }
 
-    r = requests.get(url, params=params)
+    r = requests.get(url, params=params, timeout=10)
 
-    return r.json()
+    data = r.json()
+
+    print("Weather API return:")
+    print(json.dumps(data, ensure_ascii=False, indent=2))
+
+    return data
 
 
-def send_dingtalk(msg):
-
+def send_dingtalk(message):
+    """发送钉钉消息"""
     webhook = os.getenv("DINGTALK_WEBHOOK")
     secret = os.getenv("DINGTALK_SECRET")
 
@@ -61,9 +66,9 @@ def send_dingtalk(msg):
         "Content-Type": "application/json"
     }
 
-    r = requests.post(webhook, headers=headers, json=msg)
+    r = requests.post(webhook, headers=headers, json=message)
 
-    print(r.text)
+    print("DingTalk response:", r.text)
 
 
 def main():
@@ -73,21 +78,40 @@ def main():
     province = os.getenv("PROVINCE", "安徽")
     city = os.getenv("CITY", "宣城")
 
-    weather = data.get("weather", "未知")
-    temp = data.get("temperature", "未知")
-    wind = data.get("wind", "未知")
-    humidity = data.get("humidity", "未知")
+    # 天气
+    weather = data.get("weather1", "未知")
+
+    # 今日温度
+    temp_high = data.get("wd1", "")
+    temp_low = data.get("wd2", "")
+
+    # 风力
+    wind_dir = data.get("winddirection1", "")
+    wind_level = data.get("windleve1", "")
+
+    # 当前数据
+    now = data.get("nowinfo", {})
+
+    temp_now = now.get("temperature", "")
+    humidity = now.get("humidity", "")
+    feel = now.get("feelst", "")
+    pressure = now.get("pressure", "")
 
     text = f"""
 ### 🌤 {city}天气
 
 当前天气：{weather}
 
-温度：{temp}
+当前温度：{temp_now}℃  
+体感温度：{feel}℃  
 
-风力：{wind}
+今日温度：{temp_low}℃ ~ {temp_high}℃  
 
-湿度：{humidity}
+风向：{wind_dir}  
+风力：{wind_level}  
+
+湿度：{humidity}%  
+气压：{pressure} hPa
 """
 
     msg = {

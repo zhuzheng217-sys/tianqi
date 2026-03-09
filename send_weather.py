@@ -1,41 +1,33 @@
 import os
 import time
-import json
 import hmac
+import json
 import hashlib
 import base64
 import urllib.parse
 import requests
 
 
-def build_weather_url(api_id, api_key, province, city):
-    base = "https://cn.apihz.cn/api/tianqi/tqyb.php"
-    params = {
-        "id": api_id,
-        "key": api_key,
-        "sheng": province,
-        "place": city
-    }
-    return base + "?" + urllib.parse.urlencode(params)
-
-
 def sign_webhook(webhook, secret):
+
     timestamp = str(int(time.time() * 1000))
 
     string_to_sign = f"{timestamp}\n{secret}"
 
     hmac_code = hmac.new(
-        secret.encode(),
-        string_to_sign.encode(),
+        secret.encode("utf-8"),
+        string_to_sign.encode("utf-8"),
         hashlib.sha256
     ).digest()
 
-    sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+    sign = urllib.parse.quote_plus(
+        base64.b64encode(hmac_code).decode()
+    )
 
     return f"{webhook}&timestamp={timestamp}&sign={sign}"
 
 
-def main():
+def get_weather():
 
     api_id = os.getenv("WEATHER_API_ID")
     api_key = os.getenv("WEATHER_API_KEY")
@@ -43,43 +35,70 @@ def main():
     province = os.getenv("PROVINCE", "安徽")
     city = os.getenv("CITY", "宣城")
 
+    url = "https://cn.apihz.cn/api/tianqi/tqyb.php"
+
+    params = {
+        "id": api_id,
+        "key": api_key,
+        "sheng": province,
+        "place": city
+    }
+
+    r = requests.get(url, params=params)
+
+    return r.json()
+
+
+def send_dingtalk(msg):
+
     webhook = os.getenv("DINGTALK_WEBHOOK")
     secret = os.getenv("DINGTALK_SECRET")
-
-    weather_url = build_weather_url(api_id, api_key, province, city)
-
-    r = requests.get(weather_url, timeout=15)
-
-    try:
-        weather = r.json()
-        text = json.dumps(weather, ensure_ascii=False, indent=2)
-    except:
-        text = r.text
-
-    content = f"""
-天气推送
-
-地区：{province} {city}
-
-{text}
-"""
 
     if secret:
         webhook = sign_webhook(webhook, secret)
 
-    payload = {
-        "msgtype": "text",
-        "text": {
-            "content": content
+    headers = {
+        "Content-Type": "application/json"
+    }
+
+    r = requests.post(webhook, headers=headers, json=msg)
+
+    print(r.text)
+
+
+def main():
+
+    data = get_weather()
+
+    province = os.getenv("PROVINCE", "安徽")
+    city = os.getenv("CITY", "宣城")
+
+    weather = data.get("weather", "未知")
+    temp = data.get("temperature", "未知")
+    wind = data.get("wind", "未知")
+    humidity = data.get("humidity", "未知")
+
+    text = f"""
+### 🌤 {city}天气
+
+当前天气：{weather}
+
+温度：{temp}
+
+风力：{wind}
+
+湿度：{humidity}
+"""
+
+    msg = {
+        "msgtype": "markdown",
+        "markdown": {
+            "title": f"{city}天气",
+            "text": text
         }
     }
 
-    headers = {"Content-Type": "application/json"}
-
-    resp = requests.post(webhook, headers=headers, json=payload)
-
-    print("status:", resp.status_code)
-    print(resp.text)
+    send_dingtalk(msg)
 
 
 if __name__ == "__main__":

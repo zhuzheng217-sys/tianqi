@@ -32,4 +32,4 @@ jobs:
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           # 可选：如果钉钉机器人启用了“签名”，把 Secret 存到 DINGTALK_SECRET（否则留空）
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
-        run: python scripts/send_weather.py
+        run: python send_weather.py

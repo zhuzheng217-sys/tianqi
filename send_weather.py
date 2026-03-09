@@ -1,6 +1,4 @@
-#!/usr/bin/env python3
 import os
-import sys
 import time
 import json
 import hmac
@@ -9,7 +7,8 @@ import base64
 import urllib.parse
 import requests
 
-def _build_weather_url(api_id, api_key, province, city):
+
+def build_weather_url(api_id, api_key, province, city):
     base = "https://cn.apihz.cn/api/tianqi/tqyb.php"
     params = {
         "id": api_id,
@@ -17,68 +16,56 @@ def _build_weather_url(api_id, api_key, province, city):
         "sheng": province,
         "place": city
     }
-    return base + "?" + urllib.parse.urlencode(params, safe='')
+    return base + "?" + urllib.parse.urlencode(params)
 
-def _add_sign_to_webhook(webhook_url, secret):
-    """
-    If DINGTALK_SECRET is provided, append timestamp and sign to the webhook URL.
-    Returns the signed webhook URL.
-    """
-    timestamp = str(int(round(time.time() * 1000)))
+
+def sign_webhook(webhook, secret):
+    timestamp = str(int(time.time() * 1000))
+
     string_to_sign = f"{timestamp}\n{secret}"
-    h = hmac.new(secret.encode('utf-8'), string_to_sign.encode('utf-8'), digestmod=hashlib.sha256)
-    sign = base64.b64encode(h.digest()).decode('utf-8')
-    sign_quoted = urllib.parse.quote_plus(sign)
-    # Append params (webhook_url might already contain query args)
-    sep = '&' if '?' in webhook_url else '?'
-    return f"{webhook_url}{sep}timestamp={timestamp}&sign={sign_quoted}"
+
+    hmac_code = hmac.new(
+        secret.encode(),
+        string_to_sign.encode(),
+        hashlib.sha256
+    ).digest()
+
+    sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
+
+    return f"{webhook}&timestamp={timestamp}&sign={sign}"
+
 
 def main():
+
     api_id = os.getenv("WEATHER_API_ID")
     api_key = os.getenv("WEATHER_API_KEY")
+
     province = os.getenv("PROVINCE", "安徽")
     city = os.getenv("CITY", "宣城")
+
     webhook = os.getenv("DINGTALK_WEBHOOK")
-    secret = os.getenv("DINGTALK_SECRET", "")
+    secret = os.getenv("DINGTALK_SECRET")
 
-    if not api_id or not api_key:
-        print("ERROR: WEATHER_API_ID and WEATHER_API_KEY must be set (in repository secrets).", file=sys.stderr)
-        sys.exit(2)
-    if not webhook:
-        print("ERROR: DINGTALK_WEBHOOK must be set (in repository secrets).", file=sys.stderr)
-        sys.exit(2)
+    weather_url = build_weather_url(api_id, api_key, province, city)
 
-    weather_url = _build_weather_url(api_id, api_key, province, city)
-    print(f"Fetching weather from: {weather_url}")
+    r = requests.get(weather_url, timeout=15)
 
     try:
-        r = requests.get(weather_url, timeout=15)
-    except Exception as e:
-        print(f"ERROR: failed to GET weather API: {e}", file=sys.stderr)
-        sys.exit(3)
+        weather = r.json()
+        text = json.dumps(weather, ensure_ascii=False, indent=2)
+    except:
+        text = r.text
 
-    if r.status_code != 200:
-        print(f"ERROR: weather API returned status {r.status_code}", file=sys.stderr)
-        print("Response body:", r.text)
-        sys.exit(4)
+    content = f"""
+天气推送
 
-    # Try to interpret as JSON, otherwise keep text
-    try:
-        weather_data = r.json()
-        # Pretty JSON text for the DingTalk message
-        weather_text = json.dumps(weather_data, ensure_ascii=False, indent=2)
-    except Exception:
-        weather_text = r.text
+地区：{province} {city}
 
-    # Prepare message content (trim if too long)
-    prefix = f"天气推送 — {province} {city}\n\n"
-    content = prefix + weather_text
-    if len(content) > 15000:
-        content = content[:14990] + "\n\n...[truncated]"
+{text}
+"""
 
-    # If secret is provided, sign the webhook URL
     if secret:
-        webhook = _add_sign_to_webhook(webhook, secret)
+        webhook = sign_webhook(webhook, secret)
 
     payload = {
         "msgtype": "text",
@@ -87,27 +74,13 @@ def main():
         }
     }
 
-    headers = {"Content-Type": "application/json;charset=utf-8"}
-    try:
-        resp = requests.post(webhook, headers=headers, data=json.dumps(payload), timeout=15)
-    except Exception as e:
-        print(f"ERROR: failed to POST to DingTalk webhook: {e}", file=sys.stderr)
-        sys.exit(5)
+    headers = {"Content-Type": "application/json"}
 
-    print("DingTalk response status:", resp.status_code)
-    try:
-        resp_json = resp.json()
-        print("DingTalk response JSON:", json.dumps(resp_json, ensure_ascii=False))
-        # 钉钉成功返回 errcode == 0
-        if isinstance(resp_json, dict) and resp_json.get("errcode") == 0:
-            print("Sent successfully.")
-            sys.exit(0)
-        else:
-            print("DingTalk reported error.", file=sys.stderr)
-            sys.exit(6)
-    except ValueError:
-        print("Non-JSON response from DingTalk:", resp.text)
-        sys.exit(7)
+    resp = requests.post(webhook, headers=headers, json=payload)
+
+    print("status:", resp.status_code)
+    print(resp.text)
+
 
 if __name__ == "__main__":
     main()
